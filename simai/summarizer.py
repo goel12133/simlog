@@ -8,6 +8,8 @@ from openai import OpenAI, AuthenticationError, OpenAIError
 def _format_analysis_text(analysis: Dict[str, Any]) -> str:
     """
     Turn the analysis dict into a plain-text summary (fallback if no LLM).
+
+    This version does NOT include any spike metric.
     """
     lines = []
     meta = analysis.get("meta", {})
@@ -17,33 +19,35 @@ def _format_analysis_text(analysis: Dict[str, Any]) -> str:
         f"Rows: {meta.get('num_rows', '?')}, "
         f"Columns: {meta.get('num_columns', '?')}"
     )
+    numeric_cols = meta.get("numeric_columns", [])
     lines.append(
-        f"Numeric columns: {', '.join(meta.get('numeric_columns', [])) or 'None'}"
+        f"Numeric columns: {', '.join(numeric_cols) if numeric_cols else 'None'}"
     )
     lines.append("")
 
     for col_name, stats in cols.items():
         lines.append(f"Column: {col_name}")
         lines.append(
-            f"  mean={stats['mean']:.3f}, "
-            f"min={stats['min']:.3f}, "
-            f"max={stats['max']:.3f}, "
-            f"std={stats['std']:.3f}"
+            f"  mean={stats.get('mean', 0):.3f}, "
+            f"min={stats.get('min', 0):.3f}, "
+            f"max={stats.get('max', 0):.3f}, "
+            f"std={stats.get('std', 0):.3f}"
         )
         lines.append(
-            f"  first={stats['first_val']:.3f}, "
-            f"last={stats['last_val']:.3f}, "
-            f"trend={stats['trend']:.3f}"
+            f"  first={stats.get('first_val', 0):.3f}, "
+            f"last={stats.get('last_val', 0):.3f}, "
+            f"trend={stats.get('trend', 0):.3f}"
         )
+
         monotonic = "none"
-        if stats["is_monotonic_increasing"]:
+        if stats.get("is_monotonic_increasing"):
             monotonic = "increasing"
-        elif stats["is_monotonic_decreasing"]:
+        elif stats.get("is_monotonic_decreasing"):
             monotonic = "decreasing"
+
         lines.append(
             f"  monotonic={monotonic}, "
-            f"spikes={stats['num_spikes']}, "
-            f"count={stats['count']}"
+            f"count={stats.get('count', '?')}"
         )
         lines.append("")
 
@@ -96,7 +100,7 @@ JSON analysis:
 Your summary should:
 - Describe overall behavior of key variables.
 - Mention trends (rising, falling, stable).
-- Mention any anomalies or spikes.
+- Mention any anomalies.
 - Suggest 1–3 possible next steps or parameter checks.
 """
 

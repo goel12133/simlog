@@ -9,7 +9,6 @@ def _column_analysis(series: pd.Series) -> Dict[str, Any]:
     diff = series.diff()
 
     std = float(series.std()) if len(series) > 1 else 0.0
-    spikes = int((diff.abs() > 3 * std).sum()) if std > 0 else 0
 
     trend = float(series.iloc[-1] - series.iloc[0]) if len(series) > 1 else 0.0
 
@@ -26,7 +25,6 @@ def _column_analysis(series: pd.Series) -> Dict[str, Any]:
         "trend": trend,
         "is_monotonic_increasing": is_increasing,
         "is_monotonic_decreasing": is_decreasing,
-        "num_spikes": spikes,
         "count": int(series.count()),
     }
 
