@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Generated outputs
+plots/
+plots_compare/
+*.json
+summary.txt
+result.json
+
+# Test data (optional - uncomment if you don't want to commit test files)
+# test*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
