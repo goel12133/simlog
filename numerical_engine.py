@@ -30,6 +30,16 @@ class EcomData:
         return EcomData(orders=orders, products=products, ads=ads, traffic=traffic)
 
 
+
+    @staticmethod
+    def from_dataframes(
+        orders: pd.DataFrame,
+        products: pd.DataFrame,
+        ads: pd.DataFrame,
+        traffic: pd.DataFrame,
+    ) -> "EcomData":
+        # assume these are already prepared, or call prepare_* here if you want
+        return EcomData(orders=orders, products=products, ads=ads, traffic=traffic)
 # ---------- KPI computations ----------
 
 def compute_daily_kpis(data: EcomData) -> pd.DataFrame:
