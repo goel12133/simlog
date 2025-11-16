@@ -1,5 +1,0 @@
-pandas
-openai
-matplotlib
-numpy
-
