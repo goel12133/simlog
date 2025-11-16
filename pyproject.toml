@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simlog"
+version = "0.1.0"
+description = "Simulation logging and comparison tool"
+authors = [{name = "Vikram"}]
+dependencies = []
+
+[project.scripts]
+simlog = "simlog.cli:main"
