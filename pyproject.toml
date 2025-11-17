@@ -3,11 +3,19 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "simlog"
+name = "simlog-core"
 version = "0.1.0"
-description = "Simulation logging and comparison tool"
-authors = [{name = "Vikram"}]
+description = "CSV analysis + simulation logging tools"
+authors = [{ name = "Vikram" }]
+readme = "README.md"
+requires-python = ">=3.10"
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/goel12133/simlog"
+
+[tool.setuptools.packages.find]
+include = ["simai", "simlog"]
 
 [project.scripts]
 simlog = "simlog.cli:main"

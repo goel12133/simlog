@@ -1,60 +1,44 @@
 """
 High-level simulation logging helpers for SimLog.
 
-This module exposes a single main entrypoint:
+Main entrypoint:
 
-    log_simulation(sim_type, data, run_id=None, project=None, **hints)
+    log_simulation(sim_type, data, project="default", run_id=None, **hints)
 
 It:
 - infers metrics based on sim_type + data type
-- logs them into SimLog using your existing tracking backend
+- logs them into SimLog using RunRecord + append_run
 - returns the metrics dict
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, Callable, Dict, Tuple, Type, Optional
 
-# Optional deps – used when available
 try:
-    import pandas as pd
+    import pandas as pd  # type: ignore
 except ImportError:  # type: ignore
     pd = None
 
 try:
-    import numpy as np
+    import numpy as np  # type: ignore
 except ImportError:  # type: ignore
     np = None
 
-# ---- Hook into your existing SimLog tracking backend -----------------------
-
-# Adjust these imports / function names to match your actual package.
-# The expectation is:
-#   - create_run(project: str, params: dict) -> str        # returns run_id
-#   - log_metrics(run_id: str, metrics: dict) -> None
-try:
-    from .tracker import create_run, log_metrics  # type: ignore
-except Exception as e:
-    create_run = None  # type: ignore
-    log_metrics = None  # type: ignore
-    _BACKEND_IMPORT_ERROR = e
-else:
-    _BACKEND_IMPORT_ERROR = None
+from .schema import RunRecord
+from .storage import append_run
+from .tracker import _get_git_commit  # reuse your existing helper
 
 
-def _ensure_backend():
-    if create_run is None or log_metrics is None:
-        raise RuntimeError(
-            "SimLog simulation helpers could not import the tracking backend. "
-            "Please update simlog/simulation.py to import your actual create_run / "
-            "log_metrics functions from the correct module. "
-            f"Original import error: {_BACKEND_IMPORT_ERROR!r}"
-        )
+# ---------------------------------------------------------------------------
+# Handler registry
+# ---------------------------------------------------------------------------
 
-
-# ---- Handler registry ------------------------------------------------------
-
-_HANDLER_REGISTRY: Dict[Tuple[str, Type[Any]], Callable[[Any, Dict[str, Any]], Dict[str, float]]] = {}
+_HANDLER_REGISTRY: Dict[
+    Tuple[str, Type[Any]],
+    Callable[[Any, Dict[str, Any]], Dict[str, float]],
+] = {}
 
 
 def register_sim_handler(sim_type: str, data_type: Type[Any]):
@@ -72,7 +56,10 @@ def register_sim_handler(sim_type: str, data_type: Type[Any]):
     return decorator
 
 
-def _get_handler(sim_type: str, data: Any) -> Optional[Callable[[Any, Dict[str, Any]], Dict[str, float]]]:
+def _get_handler(
+    sim_type: str,
+    data: Any,
+) -> Optional[Callable[[Any, Dict[str, Any]], Dict[str, float]]]:
     data_cls = type(data)
 
     # Exact match first
@@ -88,50 +75,54 @@ def _get_handler(sim_type: str, data: Any) -> Optional[Callable[[Any, Dict[str, 
     return None
 
 
-# ---- Public API ------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def log_simulation(
     sim_type: str,
     data: Any,
+    *,
+    project: str = "default",
     run_id: Optional[str] = None,
-    project: Optional[str] = None,
     custom_metrics: Optional[Dict[str, float]] = None,
     **hints: Any,
 ) -> Dict[str, float]:
     """
-    Analyze a simulation result and log key metrics into SimLog.
+    Infer metrics from a simulation and log them as a SimLog run.
+
+    Example:
+        metrics = log_simulation(
+            sim_type="time_series",
+            data=df,
+            project="cooling_rod",
+            time_col="t",
+            value_col="temperature",
+            custom_metrics={"peak_temp": float(df["temperature"].max())},
+        )
 
     Parameters
     ----------
     sim_type:
-        High-level kind of simulation, e.g.:
-            "time_series", "monte_carlo", "optimization", "agent_based", ...
+        High-level simulation kind, e.g. "time_series", "monte_carlo".
     data:
-        Simulation output. Supported built-ins:
-            - pandas.DataFrame (if pandas is installed)
-            - numpy.ndarray (if numpy is installed)
-        You can register custom handlers for your own types.
-    run_id:
-        Optional existing SimLog run ID to attach metrics to.
-        If None, a new run will be created.
+        Simulation output (e.g. pandas.DataFrame, numpy.ndarray).
     project:
-        Optional project name when creating a new run.
-        Ignored if run_id is provided.
+        Project name for this run (default "default").
+    run_id:
+        Optional existing run ID this simulation is related to.
+        Stored as 'parent_run_id' inside params.
     custom_metrics:
-        Optional dict of extra metrics to merge into the automatically
-        computed metrics. These override any auto-computed keys.
+        Extra metrics to merge into auto-computed ones (override on conflict).
     **hints:
-        Extra keyword hints to guide handlers, e.g.:
-            time_col="t", value_col="temperature", target="y_true", etc.
-        These are passed directly to the handler.
+        Extra hints passed to the handler, e.g.:
+            time_col="t", value_col="temperature", etc.
 
     Returns
     -------
     metrics:
-        The final metrics dict that was logged.
+        Final metrics dict that was logged.
     """
-    _ensure_backend()
-
     handler = _get_handler(sim_type, data)
 
     if handler is None:
@@ -142,28 +133,46 @@ def log_simulation(
     if custom_metrics:
         metrics.update(custom_metrics)
 
-    # Attach to a run
-    if run_id is None:
-        # Minimal params: record sim_type + hints as params when creating the run
-        params = {
-            "sim_type": sim_type,
-            **{k: v for k, v in hints.items() if _is_jsonable(v)},
-        }
-        run_id = create_run(project=project or "default", params=params)  # type: ignore[arg-type]
+    # Build params: sim_type + JSON-safe hints
+    params: Dict[str, Any] = {"sim_type": sim_type}
+    for k, v in hints.items():
+        if _is_jsonable(v):
+            params[k] = v
 
-    # Persist metrics via your backend
-    log_metrics(run_id, metrics)  # type: ignore[arg-type]
+    # If this is linked to another run, record that
+    if run_id is not None:
+        params["parent_run_id"] = run_id
 
+    # Minimal runtime; you can pass a real runtime via hints if you want
+    runtime_sec = float(hints.get("runtime_sec", 0.0))
+
+    user = os.getenv("SIMLOG_USER", os.getenv("USER", "unknown"))
+    git_commit = _get_git_commit()
+
+    record = RunRecord.new(
+        user=user,
+        project=project,
+        func_name=f"sim:{sim_type}",
+        params=params,
+        metrics=metrics,
+        artifacts=hints.get("artifacts"),
+        status="success",
+        error_message=None,
+        runtime_sec=runtime_sec,
+        git_commit=git_commit,
+    )
+
+    append_run(record)
     return metrics
 
 
-# ---- Generic fallback metrics ----------------------------------------------
+# ---------------------------------------------------------------------------
+# Generic / fallback metrics
+# ---------------------------------------------------------------------------
 
 def _generic_metrics(data: Any) -> Dict[str, float]:
     """
     Very lightweight, type-agnostic metrics as a last resort.
-
-    Tries to compute shape/length; if numpy/pandas are present, uses basic stats.
     """
     metrics: Dict[str, float] = {}
 
@@ -188,7 +197,6 @@ def _generic_metrics(data: Any) -> Dict[str, float]:
 
 
 def _basic_array_stats(arr, prefix: str) -> Dict[str, float]:
-    """Basic mean/std/min/max for a numeric numpy array."""
     arr = arr.astype("float64")
     if arr.size == 0:
         return {}
@@ -202,7 +210,6 @@ def _basic_array_stats(arr, prefix: str) -> Dict[str, float]:
 
 
 def _generic_df_stats(df) -> Dict[str, float]:
-    """Simple numeric column stats for a pandas DataFrame."""
     if pd is None:
         return {}
 
@@ -226,16 +233,12 @@ def _generic_df_stats(df) -> Dict[str, float]:
 
 
 def _is_jsonable(x: Any) -> bool:
-    """
-    Very cheap check for whether a value is likely to be JSON-serializable
-    as a simple param (for run metadata).
-    """
     return isinstance(x, (str, int, float, bool, type(None)))
 
 
-# ---- Built-in handlers -----------------------------------------------------
-# You can add more based on your common simulation types.
-
+# ---------------------------------------------------------------------------
+# Built-in handlers
+# ---------------------------------------------------------------------------
 
 # 1) Time-series simulations with pandas.DataFrame
 if pd is not None:
@@ -243,7 +246,7 @@ if pd is not None:
     @register_sim_handler("time_series", pd.DataFrame)  # type: ignore[misc]
     def _time_series_metrics(df, hints: Dict[str, Any]) -> Dict[str, float]:
         """
-        Expected shape: time column + one or more numeric value columns.
+        Expected: time column + one or more numeric value columns.
 
         Hints:
             time_col: name of the time column (default: "time")
@@ -253,7 +256,6 @@ if pd is not None:
         value_col = hints.get("value_col", None)
 
         if time_col not in df.columns:
-            # Fall back: just take the index as "time"
             t = df.index.to_numpy()
         else:
             t = df[time_col].to_numpy()
@@ -286,14 +288,13 @@ if pd is not None:
         except Exception:
             pass
 
-        # crude steady-state heuristic: last 30% of points
+        # crude steady-state: last 30% of points
         if len(y) > 5:
             start = int(0.7 * len(y))
             last_segment = y[start:]
             metrics["ts_steady_state_mean"] = float(_np.mean(last_segment))
             metrics["ts_steady_state_std"] = float(_np.std(last_segment))
 
-        # final value and delta from start
         metrics["ts_final_value"] = float(y[-1])
         metrics["ts_delta"] = float(y[-1] - y[0])
 
@@ -306,7 +307,7 @@ if np is not None:
     @register_sim_handler("monte_carlo", np.ndarray)  # type: ignore[misc]
     def _monte_carlo_metrics(arr, hints: Dict[str, Any]) -> Dict[str, float]:
         """
-        Expected shape:
+        Expected:
             - 1D: scalar outcomes
             - 2D: rows = samples, last column treated as main outcome
         """
@@ -332,7 +333,7 @@ if np is not None:
         return {
             "mc_n_samples": float(n),
             "mc_mean": mean,
-            "mc_std": std,
+            "mc_std": float(std),
             "mc_ci95_low": mean - ci_radius,
             "mc_ci95_high": mean + ci_radius,
         }

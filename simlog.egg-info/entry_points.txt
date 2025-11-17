@@ -1,2 +1,0 @@
-[console_scripts]
-simlog = simlog.cli:main
