@@ -156,19 +156,18 @@ simlog/
 
 ## Installation
 
-Install from source:
+### Option 1 — Install directly from GitHub (recommended)
+This keeps SimLog up to date without waiting for PyPI releases.
 
 ```bash
-pip install -e .
+pip install git+https://github.com/goel12133/simlog
 ```
-
-Or from PyPI (name: simlog-core):
-
+### Option 2 — Install locally in editable mode (for development)
 ```bash
-pip install simlog-core
+git clone https://github.com/goel12133/simlog.git
+cd simlog
 ```
 
----
 
 ##  Ideal Use Cases
 
