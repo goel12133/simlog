@@ -15,7 +15,7 @@ SimLog is built for scientists, engineers, and ML researchers who want fast, loc
 
 ## Features
 
-### **1. `@track` — Auto-log Python function runs**
+###  `@track` — Auto-log Python function runs**
 ```python
 from simlog import track
 
@@ -46,7 +46,7 @@ All logs are written to:
 
 ---
 
-### **2. `log_simulation` — Intelligent Simulation Metrics**
+###  `log_simulation` — Intelligent Simulation Metrics**
 
 SimLog can analyze many simulation outputs automatically:
 
@@ -84,7 +84,79 @@ Outputs mean, std, 95% CI, sample count.
 
 ---
 
-### **3. Extend with Your Own Handlers**
+## Training & AI Features
+
+SimLog includes training-focused logging tools and an AI-ready meta-log for machine learning experiments.
+
+1. Wrap any ML training loop using `start_training_run`:
+
+    ```python
+    from simlog import start_training_run
+
+    config = {
+        "model_name": "resnet18",
+        "framework": "pytorch",
+        "lr": 1e-3,
+        "batch_size": 128,
+        "optimizer": "AdamW",
+        "epochs": 10,
+    }
+
+    with start_training_run(project="cifar10_resnet", hyperparams=config) as run:
+        for epoch in range(config["epochs"]):
+            train_loss = ...
+            val_loss = ...
+            val_acc = ...
+
+            run.log_epoch(
+                epoch,
+                train_loss=train_loss,
+                val_loss=val_loss,
+                val_acc=val_acc,
+            )
+
+        run.log_artifact("checkpoints/model.pt")
+    ```
+
+2. Per-epoch metrics are saved automatically as a JSON artifact in:
+
+    ```
+    ~/.simlog/artifacts/<run_id>_epochs.json
+    ```
+
+    This contains a list of dictionaries, one per epoch.
+
+3. Summary metrics are computed automatically from the epoch history:
+
+    - final_<metric>
+    - min_<metric>
+    - max_<metric>
+    - best_<metric> (for accuracy-like metrics)
+    - num_epochs
+
+    These appear in the standard RunRecord in `runs.jsonl`.
+
+4. Metadata such as hyperparameters, model name, framework, tags, artifacts, runtime, git commit, and error status are recorded automatically.
+
+5. An additional ML-focused meta-record is written to:
+
+    ```
+    ~/.simlog/ml_runs.jsonl
+    ```
+
+    Each entry includes:
+    - run_id
+    - created_at
+    - project
+    - model_name
+    - framework
+    - hyperparams
+    - metrics_summary
+    - full epoch_history
+
+    This file is intended for future AI analysis and meta-learning.
+
+###  Extend with Your Own Handlers**
 ```python
 from simlog import register_sim_handler
 
@@ -98,7 +170,7 @@ def handle_particles(arr, hints):
 
 ---
 
-### **4. CLI Tools**
+###  CLI Tools**
 
 #### List runs:
 ```bash
